@@ -1,0 +1,379 @@
+openapi: 3.0.3
+info:
+  title: AI Assistant for Support - Recommendation API
+  description: |
+    Локальный AI-сервис для поиска релевантных решений по обращениям пользователей.    
+  version: 1.0.0
+  contact:
+    name: Support AI Architecture Team
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://ai-support.internal.company.com/api/v1
+    description: Production (on‑prem, mTLS enforced)  
+
+paths:
+  /ai/get_recommendation:
+    post:
+      summary: Получить рекомендацию по обращению
+      description: |
+        Принимает текст запроса сотрудника поддержки, выполняет семантический поиск
+        по базе знаний (полные запросы и чанки решений), при необходимости генерирует
+        ответ через LLM и возвращает структурированный результат со списком похожих обращений.
+      operationId: getRecommendation
+      tags:
+        - Recommendation
+      parameters:
+        - name: X-Idempotency-Key
+          in: header
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: |
+            Уникальный ключ идемпотентности (UUID). При повторной отправке того же ключа
+            в течение 24 часов сервер вернёт кэшированный результат без повторного выполнения пайплайна.
+        - name: X-Trace-Id
+          in: header
+          schema:
+            type: string
+            format: uuid
+          required: false
+          description: |
+            Сквозной идентификатор запроса для трассировки.
+        - name: X-User-Id
+          in: header
+          schema:
+            type: string
+          required: false
+          description: |
+            Идентификатор конечного пользователя (сотрудника поддержки), инициировавшего запрос.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendationRequest'
+            examples:
+              typical:
+                summary: Типовой запрос с фильтром
+                value:
+                  query: "Не могу сохранить платежный документ"
+                  top_k: 5
+                  similarity_threshold: 0.65
+                  metadata:
+                    category: "AA-01"
+                    system: "ERP"
+              minimal:
+                summary: Только обязательные поля
+                value:
+                  query: "Ошибка при проведении документа"
+      responses:
+        '200':
+          description: Успешный ответ (результат поиска)
+          headers:
+            X-Trace-Id:
+              schema:
+                type: string
+                format: uuid
+              description: Сквозной идентификатор трассировки ответа
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationResponse'
+              examples:
+                ok:
+                  summary: Успешный поиск с генерацией ответа
+                  value:
+                    status: ok
+                    trace_id: "3f9a2b7c-8d4e-4f6a-9b2c-1a2b3c4d5e6f"
+                    cache_hit: false
+                    answer: "Рекомендуется проверить лог проверки документа при сохранении, и убедиться что средства на платеж зарезервированы в бюджете"
+                    requests:
+                      - "REQ-004312"
+                      - "REQ-002189"
+                    processing_time_ms: 1840
+                cached:
+                  summary: Ответ из кэша
+                  value:
+                    status: cached
+                    trace_id: "7c8d9e0f-1a2b-3c4d-5e6f-7a8b9c0d1e2f"
+                    cache_hit: true
+                    answer: "Рекомендуется проверить лог проверки документа при сохранении, и убедиться что средства на платеж зарезервированы в бюджете"
+                    requests:
+                      - "REQ-004312"
+                      - "REQ-002189"
+                    processing_time_ms: 52
+                empty:
+                  summary: Ничего не найдено
+                  value:
+                    status: empty
+                    trace_id: "4b3c2d1e-5f6a-4b7c-8d9e-0f1e2d3c4b5a"
+                    cache_hit: false
+                    answer: null
+                    requests: []
+                    processing_time_ms: 320
+                degraded:
+                  summary: LLM недоступна, возвращены только похожие обращения
+                  value:
+                    status: degraded
+                    trace_id: "5a4b3c2d-1e2f-3a4b-5c6d-7e8f9a0b1c2d"
+                    cache_hit: false
+                    fallback_reason: llm_timeout
+                    answer: null
+                    requests:
+                      - "REQ-004312"
+                    processing_time_ms: 985
+        '400':
+          description: Некорректный запрос
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_query:
+                  summary: Обязательное поле отсутствует
+                  value:
+                    error: "VALIDATION_FAILED"
+                    message: "Field 'query' is required and must be at least 3 characters"
+                    trace_id: "6b7c8d9e-0f1a-4b2c-3d4e-5f6a7b8c9d0e"
+                    details:
+                      field: "query"
+                      constraint: "minLength"
+                      minimum: 3
+                invalid_threshold:
+                  summary: Некорректное значение порога
+                  value:
+                    error: "VALIDATION_FAILED"
+                    message: "Field 'similarity_threshold' must be between 0.0 and 1.0"
+                    trace_id: "7c8d9e0f-1a2b-3c4d-5e6f-7a8b9c0d1e2f"
+                    details:
+                      field: "similarity_threshold"
+                      constraint: "range"
+                      minimum: 0.0
+                      maximum: 1.0
+                query_too_long:
+                  summary: Слишком длинный запрос
+                  value:
+                    error: "VALIDATION_FAILED"
+                    message: "Field 'query' must not exceed 2000 characters"
+                    trace_id: "8d9e0f1a-2b3c-4d5e-6f7a-8b9c0d1e2f3a"
+                    details:
+                      field: "query"
+                      constraint: "maxLength"
+                      maximum: 2000
+        '401':
+          description: Неавторизованный запрос
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_key:
+                  summary: Отсутствует API-ключ
+                  value:
+                    error: "AUTH_MISSING"
+                    message: "Missing X-API-Key header"
+                    trace_id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+                invalid_key:
+                  summary: Недействительный API-ключ
+                  value:
+                    error: "AUTH_INVALID"
+                    message: "Invalid or expired API key"
+                    trace_id: "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e"
+        '429':
+          description: Превышен лимит запросов (rate-limit на Gateway)
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Рекомендуемое время ожидания в секундах перед повторным запросом
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "RATE_LIMIT_EXCEEDED"
+                message: "Too many requests. Retry after 60 seconds."
+                trace_id: "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f"
+                details:
+                  retry_after_seconds: 60
+                  limit: 100
+                  window: "60s"
+        '500':
+          description: Внутренняя ошибка сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                internal_error:
+                  summary: Непредвиденная ошибка
+                  value:
+                    error: "INTERNAL_ERROR"
+                    message: "An unexpected error occurred. Please try again later."
+                    trace_id: "d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a"
+                db_error:
+                  summary: Ошибка базы данных
+                  value:
+                    error: "DATABASE_ERROR"
+                    message: "Failed to log query result. The search result is still valid."
+                    trace_id: "e5f6a7b8-c9d0-4e1f-2a3b-4c5d6e7f8a9b"
+        '503':
+          description: Сервис временно недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                embedding_unavailable:
+                  summary: Embedding-модель недоступна
+                  value:
+                    error: "SERVICE_UNAVAILABLE"
+                    message: "Embedding service is temporarily unavailable. Unable to process search."
+                    trace_id: "f6a7b8c9-d0e1-4f2a-3b4c-5d6e7f8a9b0c"
+                    details:
+                      unavailable_component: "embedding_service"
+                qdrant_unavailable:
+                  summary: Векторная БД недоступна
+                  value:
+                    error: "SERVICE_UNAVAILABLE"
+                    message: "Vector database is temporarily unavailable. Unable to search for recommendations."
+                    trace_id: "a7b8c9d0-e1f2-4a3b-4c5d-6e7f8a9b0c1d"
+                    details:
+                      unavailable_component: "vector_db"
+
+components:
+  schemas:
+    RecommendationRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          minLength: 3
+          maxLength: 2000
+          description: "Текст запроса сотрудника поддержки (описание проблемы)."
+          example: "Не могу сохранить платежный документ"
+        top_k:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 5
+          description: "Максимальное количество возвращаемых похожих обращений."
+        similarity_threshold:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          default: 0.65
+          description: "Минимальный порог схожести (cosine similarity)."
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: "Фильтры по метаданным обращений (категория, система, статус)."
+          example:
+            category: "AA-01"
+            system: "ERP"
+
+    RecommendationResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, cached, empty, degraded]
+          description: |
+            - `ok` – успешное выполнение, найдены похожие обращения, LLM отработала.
+            - `cached` – ответ возвращён из Redis без повторного выполнения пайплайна.
+            - `empty` – Qdrant не вернул кандидатов выше порога.
+            - `degraded` – обращения найдены, но LLM недоступна (нет текстового ответа).
+        trace_id:
+          type: string
+          format: uuid
+          description: "Сквозной идентификатор запроса."
+        cache_hit:
+          type: boolean
+          description: "true, если ответ был взят из кэша"
+          example: false
+        answer:
+          type: string
+          nullable: true
+          description: |
+            Сгенерированный LLM ответ (текст рекомендации).
+            - При `status: ok` / `cached` — подготовленный ответ.
+            - При `status: empty` / `degraded` — null.
+        requests:
+          type: array
+          items:
+            type: string
+          maxItems: 50
+          description: "Список идентификаторов (номеров) похожих обращений из базы знаний, отсортированный по релевантности. Ограничен значением `top_k` из запроса."
+          example: ["REQ-004312", "REQ-002189"]
+        processing_time_ms:
+          type: integer
+          description: "Общее время обработки запроса в миллисекундах."
+          example: 1840
+        fallback_reason:
+          type: string
+          nullable: true
+          enum: [llm_timeout, llm_error, vector_db_unavailable]
+          description: "Причина деградированного ответа (заполняется при status: degraded)."
+      required:
+        - status
+        - trace_id
+        - cache_hit
+        - answer
+        - requests
+        - processing_time_ms
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: "Машинный код ошибки для программной обработки."
+          enum:
+            - VALIDATION_FAILED
+            - AUTH_MISSING
+            - AUTH_INVALID
+            - RATE_LIMIT_EXCEEDED
+            - INTERNAL_ERROR
+            - DATABASE_ERROR
+            - SERVICE_UNAVAILABLE
+        message:
+          type: string
+          description: "Человекочитаемое описание ошибки."
+          example: "Field 'query' is required"
+        trace_id:
+          type: string
+          format: uuid
+          description: "Идентификатор запроса для трассировки и диагностики."
+        details:
+          type: object
+          description: "Дополнительные сведения об ошибке (зависит от контекста)."
+          additionalProperties: true
+          example:
+            retry_after_seconds: 60
+            unavailable_component: "embedding_service"
+      required:
+        - error
+        - message
+        - trace_id
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        API-ключ для авторизации сервис-ту-сервис.
+
+security:
+  - ApiKeyAuth: []
+
+tags:
+  - name: Recommendation
+    description: "Операции получения рекомендаций по обращениям пользователей."
