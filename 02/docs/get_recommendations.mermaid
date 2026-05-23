@@ -1,0 +1,82 @@
+sequenceDiagram
+    actor User as Сотрудник поддержки
+    participant ERP as ERP (SM)
+    participant GW as Gateway
+    participant RH as Request Handler
+    participant CM as Cache Manager
+    participant Cache as Redis
+    participant SO as Search Orchestrator
+    participant MS as Model Serving
+    participant QD as Qdrant
+    participant LLM as LLM & Response Builder
+    participant AM as Audit & Metrics
+    participant DB as PostgreSQL
+    participant PR as Prometheus
+
+    User->>ERP: Ввод запроса
+    ERP->>GW: POST /api/v1/ai/get_recommendation<br/>X-User-Id, X-Idempotency-Key
+    GW->>GW: Аутентификация, rate-limit
+    GW->>RH: Запрос + X-User-Id
+    RH->>RH: Валидация
+
+    rect rgba(200, 220, 255, 0.3)
+        Note over RH,CM: Проверка кэша
+        RH->>CM: Проверка кэша (hash запроса)
+        CM->>Cache: GET cache_key
+        alt Попадание в кэш
+            Cache-->>CM: Результат
+            CM-->>RH: Кэшированный ответ
+            RH->>GW: Ответ
+            GW->>ERP: Ответ
+            ERP->>User: Рекомендация
+        else Промах кэша
+            CM-->>RH: Нет данных
+        end
+    end
+
+    opt Промах кэша
+        rect rgba(255, 240, 200, 0.4)
+            Note over RH,LLM: Запрос на поиск
+            RH->>SO: Запрос поиска (текст запроса)
+            SO->>MS: Получить embedding запроса
+            MS-->>SO: Вектор запроса
+
+            rect rgba(200, 255, 200, 0.3)
+                Note over SO,QD: Поиск в Qdrant
+                par Поиск по полным запросам
+                    SO->>QD: Поиск по полным запросам (top_k)
+                and
+                    SO->>QD: Поиск по чанкам решений (top_k)
+                end
+                QD-->>SO: Результаты (векторы + payload)
+                SO->>SO: Ранжирование, удаление дубликатов, отсечение по threshold
+            end
+
+            alt Результаты найдены
+                rect rgba(230, 210, 255, 0.3)
+                    Note over SO,LLM: Генерация ответа LLM
+                    SO->>LLM: Контекст (запрос + результаты поиска)
+                    LLM->>MS: Генерация ответа (контекст)
+                    MS-->>LLM: Сгенерированный ответ
+                    LLM->>CM: Обновление кэша (запрос + ответ)
+                    CM->>Cache: SET cache_key
+                    LLM-->>RH: Ответ
+                end
+            else Qdrant пуст
+                SO-->>RH: status: empty
+            else Ошибка LLM / таймаут
+                SO-->>RH: status: degraded (результаты поиска без генерации)
+            end
+        end
+    end
+
+    rect rgba(255, 220, 220, 0.3)
+        Note over RH,PR: Данные аудита
+        RH->>AM: Асинхронно: данные аудита (X-User-Id, запрос, результат)
+        AM->>DB: INSERT query_log
+        AM->>PR: Отправка метрик
+    end
+
+    RH->>GW: Ответ (статус, данные)
+    GW->>ERP: Ответ
+    ERP->>User: Рекомендация / статус
