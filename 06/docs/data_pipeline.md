@@ -1,7 +1,5 @@
 # Архитектура Data Pipeline: AI-ассистент для службы поддержки ERP
 
-> Адаптированный Data Pipeline для RAG-системы с on-prem развёртыванием в Kubernetes.
-
 ## Схема архитектуры данных
 
 ```mermaid
@@ -51,7 +49,7 @@ flowchart TD
 
 ---
 
-## Текстовое описание архитектуры
+## Текстовое описание потока
 
 ### Обзор
 
@@ -59,8 +57,6 @@ flowchart TD
 
 1. **Offline ETL Pipeline** — пополнение базы знаний из ERP по расписанию (1 раз/сутки)
 2. **Online Query Pipeline** — обработка запросов пользователей в реальном времени
-
-В отличие от типичей Lakehouse-архитектуры (Kafka + Spark + MinIO + Feast), данная система использует упрощённый стек: **Python ETL** (вместо Spark/Airflow), **PostgreSQL** (вместо MinIO Delta Lake), **Qdrant** (вместо Feature Store + отдельного Vector DB), **Qwen** (вместо MLflow). Это обусловлено спецификой задачи: работа с текстовыми обращениями, а не с числовыми признаками для рекомендательных систем.
 
 ### Описание компонентов
 
@@ -157,89 +153,6 @@ Query → Redis cache check
 
 ---
 
-## Схема данных PostgreSQL
-
-### Таблицы
-
-```sql
--- Сырые обращения из ERP
-CREATE TABLE raw_requests (
-    request_id VARCHAR(50) PRIMARY KEY,
-    title TEXT NOT NULL,
-    description TEXT,
-    resolution TEXT,
-    direction VARCHAR(100),
-    status VARCHAR(50),
-    created_at TIMESTAMP,
-    modified_at TIMESTAMP,
-    synced_at TIMESTAMP DEFAULT NOW(),
-    raw_payload JSONB
-);
-
--- Ожидает ручной подтверждения (дубликаты)
-CREATE TABLE pending_validations (
-    id SERIAL PRIMARY KEY,
-    request_id VARCHAR(50) REFERENCES raw_requests(request_id),
-    duplicate_of VARCHAR(50),
-    similarity_score FLOAT,
-    status VARCHAR(20) DEFAULT 'pending',  -- pending / approved / rejected
-    validated_by VARCHAR(100),
-    validated_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
--- Лог запросов (аудит)
-CREATE TABLE query_log (
-    id SERIAL PRIMARY KEY,
-    trace_id VARCHAR(50) UNIQUE NOT NULL,
-    user_id VARCHAR(100),
-    query TEXT,
-    top_k INT,
-    similarity_threshold FLOAT,
-    status VARCHAR(20),  -- ok / degraded / empty
-    response_time_ms INT,
-    cache_hit BOOLEAN,
-    llm_used BOOLEAN,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
--- Состояние ETL
-CREATE TABLE etl_state (
-    id SERIAL PRIMARY KEY,
-    last_sync_at TIMESTAMP,
-    records_synced INT,
-    errors_count INT,
-    status VARCHAR(20),  -- success / partial / failed
-    created_at TIMESTAMP DEFAULT NOW()
-);
-```
-
----
-
-## Схема данных Qdrant
-
-### Коллекция `requests`
-
-| Поле | Тип | Описание |
-|------|-----|----------|
-| vector | float[1024] | Эмбеддинг полного текста обращения |
-| payload.request_id | string | Ссылка на raw_requests |
-| payload.title | string | Заголовок обращения |
-| payload.direction | string | Направление поддержки |
-| payload.status | string | Статус обращения |
-
-### Коллекция `solution_chunks`
-
-| Поле | Тип | Описание |
-|------|-----|----------|
-| vector | float[1024] | Эмбеддинг чанка решения |
-| payload.request_id | string | Ссылка на исходное обращение |
-| payload.chunk_index | int | Порядковый номер чанка |
-| payload.chunk_text | string | Текст чанка |
-| payload.direction | string | Направление поддержки |
-
----
-
 ## Потоки данных
 
 ### Поток 1: Offline ETL (пополнение базы знаний)
@@ -303,76 +216,3 @@ CREATE TABLE etl_state (
                                               │      │ │         │ │       │
                                               └──────┘ └─────────┘ └───────┘
 ```
-
----
-
-## Гарантии и неисправности
-
-### Идемпотентность
-
-| Компонент | Механизм |
-|-----------|----------|
-| ETL Worker | Upsert по `RequestID` + `last_sync_at` в `etl_state` |
-| Query API | `X-Idempotency-Key` → дедупликация в Redis (TTL = timeout) |
-| Admin API | Операции идемпотентны по определению (CRUD) |
-
-### Failure Modes
-
-| Сценарий | Поведение |
-|----------|-----------|
-| ERP недоступен | ETL пропускает цикл, логирует ошибку, следующий цикл подхватит |
-| Qdrant недоступен | `status: degraded` — возврат без векторного поиска |
-| Qwen LLM недоступен | `status: degraded` — возврат результатов поиска без генерации |
-| Redis недоступен | Работа без кэша (прямые запросы к Qdrant) |
-| PostgreSQL недоступен | Критическая ошибка — ответ не формируется |
-| Дубликат обнаружен | Автоматическая запись в `pending_validations`, уведомление администратора |
-
-### Circuit Breakers
-
-| Сервис | Порог срабатывания | Время восстановления |
-|--------|-------------------|---------------------|
-| oData ERP | >5 ошибок за 1 мин | 5 мин |
-| Qwen Embedding | >3 таймаута за 1 мин | 3 мин |
-| Qwen LLM | >3 таймаута за 1 мин | 3 мин |
-| Qdrant | >5 ошибок за 1 мин | 5 мин |
-
----
-
-## SLA и метрики
-
-| Метрика | Целевое значение |
-|---------|-----------------|
-| Query latency (без LLM) | < 3 с |
-| Query latency (с LLM) | < 5 с |
-| Cache hit ratio | > 40% |
-| ETL freshness | ≤ 24 часа |
-| Dedup accuracy (auto-approve) | > 85% |
-| Availability | 99.5% |
-
----
-
-## Наблюдаемость
-
-| Компонент | Инструмент | Метрики |
-|-----------|------------|---------|
-| AI Service | Prometheus | request_count, latency, cache_hit, llm_errors |
-| ETL Worker | Prometheus | sync_count, sync_errors, last_sync_at |
-| Embedding Service | Prometheus | embedding_latency, dedup_rejected, dedup_pending |
-| PostgreSQL | pg_stat_statements | query_count, slow_queries |
-| Qdrant | /metrics endpoint | search_latency, collection_size |
-| Все сервисы | Grafana | Дашборды, алерты |
-
----
-
-## Сравнение с шаблоном Lakehouse
-
-| Шаблон (data_architecture.md) | Данный проект | Причина |
-|-------------------------------|---------------|---------|
-| Kafka (стриминг) | oData polling | ERP не предоставляет CDC/стриминг |
-| Spark Structured Streaming | Python ETL | Объём данных <1M обращений, простая трансформация |
-| Airflow | Cron scheduler | Нет сложной оркестрации, один пайплайн |
-| MinIO + Delta Lake | PostgreSQL | SQL-достаточно для сырых данных, нет потребности в time travel |
-| Feast Feature Store | Нет | RAG-задача, не рекомендательная система с признаками |
-| MLflow | Qwen serving | Модель одна, versioning не критичен для MVP |
-| Great Expectations | Валидация в ETL | Проще — встроенные проверки |
-| Debezium (CDC) | oData polling | Источник не поддерживает CDC |
