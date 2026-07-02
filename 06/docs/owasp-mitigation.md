@@ -218,25 +218,3 @@ Output Validator (LLM02/LLM09) ← Fact Checker (LLM09)
     ↓
 Gateway → пользователь
 ```
-
-### Побочный пайплайн: аудит и метрики
-
-```
-Request Handler / LLM & Response Builder
-    ↓
-Audit & Metrics (Async SQL + Prometheus)
-    ↓
-SQL DB (хранилище логов)
-Prometheus (метрики)
-```
-
----
-
-## Ключевые решения
-
-1. **Defense in Depth**: Каждая угроза покрыта минимум двумя компонентами на разных уровнях
-2. **Zero Trust**: Все входные данные проходят валидацию независимо от источника
-3. **Least Privilege**: Access Controller ограничивает права LLM и расширений
-4. **Separation of Duties**: Security-компоненты (оранжевые) изолированы от business-компонентов
-5. **Observability**: Все запросы логируются, метрики экспортируются в Prometheus
-6. **Graceful Degradation**: При обнаружении атаки запрос отклоняется, а не обрабатывается частично
