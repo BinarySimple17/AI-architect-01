@@ -51,7 +51,7 @@ AI-ассистент для службы поддержки
 | Answer Relevancy | Соответствие ответа заданному вопросу | Ragas |
 | Context Precision | Точность извлечения релевантного контекста | Ragas |
 | Context Recall | Полнота извлечения контекста | Ragas |
-| Hallucination Rate | Доля галлюцинаций в ответах | DeepEval |
+| Hallucination Rate | Доля галлюцинаций в ответах | Ragas |
 
 **Golden Set:**
 - Набор из 50+ эталонных вопросов с ожидаемыми ответами
