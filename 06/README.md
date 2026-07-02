@@ -8,6 +8,12 @@
 
 ## Решение
 
+### 0. Context
+AI-ассистент для службы поддержки
+**[context.md](docs/context.md)**
+**[C2 container](docs/c2_container_01.drawio.svg)**
+**[data pipeline](docs/data_pipeline.md)**
+
 ### 1. Security Layer
 
 На архитектурную схему C3 добавлены security-компоненты для митигации актуальных угроз OWASP LLM Top 10 (2025).
