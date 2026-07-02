@@ -10,13 +10,16 @@
 
 ### 0. Context
 AI-ассистент для службы поддержки
-**[context.md](docs/context.md)**
-**[C2 container](docs/c2_container_01.drawio.svg)**
-**[data pipeline](docs/data_pipeline.md)**
+- **[context.md](docs/context.md)**
+- **[C2 container](docs/c2_container_01.drawio.svg)**
+- **[data pipeline](docs/data_pipeline.md)**
 
 ### 1. Security Layer
 
 На архитектурную схему C3 добавлены security-компоненты для митигации актуальных угроз OWASP LLM Top 10 (2025).
+
+**Матрица митигации актуальных угроз:**
+- [owasp-mitigation.md](docs/owasp-mitigation.md)
 
 **Добавленные компоненты:**
 
@@ -31,16 +34,14 @@ AI-ассистент для службы поддержки
 | Fact Checker | Python + RAG Triad | Верификация фактов, обнаружение галлюцинаций (LLM09) |
 | Input Length Validator | Python | Ограничение длины промпта (LLM10) |
 
-**Матрица митигации актуальных угроз:**
-[owasp-mitigation.md](docs/owasp-mitigation.md)
-
 **Схема C3: ![c3_ai_service_01.drawio](docs/c3_ai_service_01.svg)**
 
 ---
 
 ### 2. Testing Strategy (RAG Quality)
 
-**План тестирования: [rag_quality_plan.md](docs/rag_quality_plan.md)**
+**План тестирования:**
+- [rag_quality_plan.md](docs/rag_quality_plan.md)
 
 **Метрики:**
 
@@ -60,6 +61,9 @@ AI-ассистент для службы поддержки
 ---
 
 ### 3. Observability (Grafana Dashboard)
+
+**Спецификация дашборда:**
+- [docs/grafana_dashboard.md](docs/grafana_dashboard.md)
 
 **Golden Signals:**
 
@@ -85,7 +89,5 @@ AI-ассистент для службы поддержки
 - Error Rate > 5%
 - Hallucination Rate > 10%
 - Cache Hit Rate < 30%
-
-**Спецификация дашборда: [docs/grafana_dashboard.md](docs/grafana_dashboard.md)**
 
 ---
