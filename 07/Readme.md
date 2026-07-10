@@ -10,7 +10,8 @@
 ---
 
 ### 1.1 Сам расчет и ссылки в листе google docs
-	**[Расчет](https://docs.google.com/spreadsheets/d/1mBYIYUyUo7orpu_1pM5wUtDgur1CIdB9MaRvQnjLoRA/edit?usp=sharing)**
+
+[Расчет](https://docs.google.com/spreadsheets/d/1mBYIYUyUo7orpu_1pM5wUtDgur1CIdB9MaRvQnjLoRA/edit?usp=sharing)
 
 ### 2. Расчёт VRAM
 **Результаты по памяти:**
