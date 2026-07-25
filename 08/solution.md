@@ -378,7 +378,7 @@ resource "helm_release" "harbor" {
 
 Разделение ответственности между Terraform и ArgoCD:
 
-- **Terraform** — инфраструктура: VPC, K8s-кластер, базы данных, сервисы моделирования, оркестрацию и наблюдаемость (12 `helm_release`). Первичный деплой — из Terraform.
+- **Terraform** — инфраструктура: VPC, K8s-кластер, базы данных, сервисы моделирования, оркестрацию и наблюдаемость. Первичный деплой — из Terraform.
 - **ArgoCD** — прикладные сервисы: AI Service (Python), Gateway (Java), ETL Worker (Python), Admin (Java). 
 
 ```mermaid
