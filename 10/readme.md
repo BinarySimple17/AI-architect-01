@@ -3,7 +3,7 @@
 **Система:** корпоративный RAG-ассистент для службы поддержки ERP (см. `docs/service-context.md`, `docs/service-iac.md`, `docs/service-data_pipeline.md`, `docs/service-highload-architecture.md`).
 
 Документ содержит две части:
-1. **Governance** — Model Card по стандарту Hugging Face / Mitchell et al. (arXiv:1810.03993).
+1. **Governance** — Model Card по стандарту Hugging Face 
 2. **FinOps** — анализ превышения облачного счёта на 50% и план Cost Optimization.
 
 ---
